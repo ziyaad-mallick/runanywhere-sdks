@@ -236,6 +236,37 @@ def test_keyboard_interrupt_returns_130(cli, monkeypatch) -> None:
     assert main(["run", "m", "hi"]) == 130
 
 
+def test_chat_prompt_goes_to_stderr_not_stdout(cli, monkeypatch, capsys) -> None:
+    """Results must stay pipeable: `runanywhere chat m > answers.txt` holds no "> " prompts."""
+    replies = iter(["hi"])
+
+    def fake_input(*args):
+        try:
+            return next(replies)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    assert main(["chat", "m"]) == 0
+    captured = capsys.readouterr()
+    assert "> " not in captured.out
+    assert captured.out.startswith("Paris")
+    assert "> " in captured.err
+
+
+def test_run_repl_prompt_goes_to_stderr_not_stdout(cli, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+
+    def fake_input(*args):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    assert main(["run", "m"]) == 0
+    captured = capsys.readouterr()
+    assert "> " not in captured.out
+    assert "> " in captured.err
+
+
 # --------------------------------------------------------------------------- audio + embeddings
 def test_embed_json(cli, capsys) -> None:
     assert main(["embed", "hello", "--json"]) == 0

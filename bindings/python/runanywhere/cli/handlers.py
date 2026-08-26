@@ -170,7 +170,8 @@ def _repl(options: LlmOptions, args: argparse.Namespace, model: str) -> int:
     output.status(f"run {model} — Ctrl-D or 'exit' to quit.")
     while True:
         try:
-            line = input("> ")
+            output.status_raw("> ")
+            line = input()
         except EOFError:
             output.status("")
             return 0
@@ -193,7 +194,8 @@ def handle_chat(args: argparse.Namespace) -> int:
             output.status(f"chat {model} — Ctrl-D or 'exit' to quit.")
             while True:
                 try:
-                    line = input("> ")
+                    output.status_raw("> ")
+                    line = input()
                 except EOFError:
                     output.status("")
                     return 0
