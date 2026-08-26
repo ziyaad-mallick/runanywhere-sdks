@@ -298,9 +298,16 @@ def handle_rm(args: argparse.Namespace) -> int:
     if not os.path.isdir(directory):
         output.error(f"{args.model} is not downloaded")
         return 1
-    if not args.force and output.stdout_is_tty():
+    # Gate the confirmation on *stdin*: it is the stream the answer is read from. Gating on
+    # stdout skipped the prompt whenever the results were piped (`rm qwen | tee log` deleted
+    # silently) and raised an unhandled EOFError when stdout was a terminal but stdin was not.
+    if not args.force and sys.stdin.isatty():
         output.status_raw(f"remove {args.model}? [y/N] ")
-        if input().strip().lower() not in ("y", "yes"):
+        try:
+            answer = input()
+        except EOFError:  # Ctrl-D at the prompt is a decline, not a crash
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
             output.status("aborted")
             return 0
     freed = 0

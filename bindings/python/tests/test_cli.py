@@ -300,3 +300,58 @@ def test_rag_answers_over_files(cli, capsys, tmp_path) -> None:
 def test_rm_path_traversal_is_rejected(cli, capsys) -> None:
     assert main(["rm", "-f", "../../evil"]) == 2  # must NOT delete outside the models root
     assert "invalid model name" in capsys.readouterr().err
+
+
+@pytest.fixture()
+def downloaded_model(monkeypatch, tmp_path):
+    """A models root holding one downloaded model, with a recording ``models.delete``."""
+    root = tmp_path / "models"
+    (root / "qwen").mkdir(parents=True)
+    (root / "qwen" / "model.gguf").write_bytes(b"x" * 16)
+    monkeypatch.setattr("runanywhere.cli.handlers.models_root", lambda: str(root))
+    deleted: list = []
+
+    class FakeModels:
+        def delete(self, model_id):
+            deleted.append(model_id)
+
+    monkeypatch.setattr(runanywhere, "models", FakeModels())
+    return deleted
+
+
+def test_rm_confirms_when_stdin_is_a_tty_even_if_stdout_is_piped(
+    downloaded_model, monkeypatch, capsys
+) -> None:
+    """`runanywhere rm qwen | tee log` must still ask — the answer comes from stdin, not stdout.
+
+    stdout is not a tty here (pytest captures it), which is exactly the piped case.
+    """
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr("builtins.input", lambda *a: "n")
+    assert main(["rm", "qwen"]) == 0
+    assert downloaded_model == []  # declined -> nothing deleted
+    assert "remove qwen?" in capsys.readouterr().err
+
+
+def test_rm_does_not_prompt_when_stdin_is_not_a_tty(downloaded_model, monkeypatch) -> None:
+    """Non-interactive stdin must not reach input() — that raised an unhandled EOFError."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False, raising=False)
+    monkeypatch.setattr("runanywhere.cli.output.stdout_is_tty", lambda: True)  # `rm m < /dev/null`
+
+    def boom(*args):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", boom)
+    assert main(["rm", "qwen"]) == 0
+    assert downloaded_model == ["qwen"]
+
+
+def test_rm_treats_ctrl_d_at_the_prompt_as_a_decline(downloaded_model, monkeypatch) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+
+    def boom(*args):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", boom)
+    assert main(["rm", "qwen"]) == 0
+    assert downloaded_model == []
